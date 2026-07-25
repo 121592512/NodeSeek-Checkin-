@@ -37,6 +37,32 @@ def send_telegram_message(text):
     except Exception as e:
         print(f"发送 Telegram 异常: {e}")
 
+
+def send_magicpush_message(text):
+    """推送消息到自建 MagicPush 网关（飞牛 NAS）"""
+    mp_url = os.getenv('MAGICPUSH_URL')
+    mp_token = os.getenv('MAGICPUSH_TOKEN')
+    if not mp_url or not mp_token:
+        print("未配置 MagicPush 通知，跳过。")
+        return
+    # 去掉 Telegram 用的 HTML 标签，MagicPush 用纯文本/Markdown
+    plain = text.replace('<b>', '').replace('</b>', '')
+    url = f"{mp_url.rstrip('/')}/api/push/{mp_token}"
+    payload = {
+        "title": "📅 NodeSeek 签到汇总",
+        "content": plain,
+        "type": "markdown"
+    }
+    try:
+        resp = requests.post(url, json=payload, timeout=15)
+        if resp.status_code == 200:
+            print("MagicPush 通知发送成功。")
+        else:
+            print(f"MagicPush 通知失败: {resp.status_code} {resp.text[:120]}")
+    except Exception as e:
+        print(f"发送 MagicPush 异常: {e}")
+
+
 def checkin(cookie, random_mode=False):
     """签到函数，使用正确的 API 方式：POST /api/attendance?random=true/false，body为空"""
     random_param = 'true' if random_mode else 'false'
@@ -142,6 +168,7 @@ def main():
 
     final_msg = "<b>📅 NodeSeek 签到汇总</b>\n" + "\n".join(results)
     send_telegram_message(final_msg)
+    send_magicpush_message(final_msg)
 
 if __name__ == "__main__":
     main()
