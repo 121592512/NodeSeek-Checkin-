@@ -63,26 +63,45 @@ def send_magicpush_message(text):
         print(f"发送 MagicPush 异常: {e}")
 
 
+# 与生成 cf_clearance 的浏览器保持一致的 UA（否则 Cloudflare 因 UA 不匹配拒绝）
+BROWSER_UA = 'Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Mobile Safari/537.36'
+
+
 def checkin(cookie, random_mode=False):
-    """签到函数，使用正确的 API 方式：POST /api/attendance?random=true/false，body为空"""
+    """签到函数，使用正确的 API 方式：POST /api/attendance?random=true/false，body为空
+    改进：先用 Session GET 首页，让 Cloudflare 在 runner 的 IP 上重新下发 cf_clearance，
+    避免依赖用户家庭 IP 签发的 clearance（跨 IP 常被拒 403）。"""
     random_param = 'true' if random_mode else 'false'
     url = f"https://www.nodeseek.com/api/attendance?random={random_param}"
-    
-    headers = {
+
+    base_headers = {
         'Accept': '*/*',
         'Accept-Language': 'zh-CN,zh-Hans;q=0.9,en;q=0.8',
         'Content-Type': 'application/json',
-        'Cookie': cookie,
         'Origin': 'https://www.nodeseek.com',
         'Referer': 'https://www.nodeseek.com/board',
         'Sec-Fetch-Dest': 'empty',
         'Sec-Fetch-Mode': 'cors',
         'Sec-Fetch-Site': 'same-origin',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        'User-Agent': BROWSER_UA
     }
-    
+
+    s = requests.Session()
+    # 先把用户提供的登录态 cookie 灌进 session
+    for kv in cookie.split(';'):
+        kv = kv.strip()
+        if '=' in kv:
+            k, v = kv.split('=', 1)
+            s.cookies.set(k.strip(), v.strip())
+
+    # 预热：访问首页，让 Cloudflare 在 runner IP 上重新签发 cf_clearance（覆盖旧的）
     try:
-        resp = requests.post(url, headers=headers, timeout=15)
+        s.get('https://www.nodeseek.com/board', headers=base_headers, timeout=15)
+    except Exception:
+        pass
+
+    try:
+        resp = s.post(url, headers=base_headers, timeout=15)
     except Exception as e:
         return False, f"请求异常: {e}", 0
 
